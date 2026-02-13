@@ -12,23 +12,18 @@ pipeline {
             steps {
                 echo "Creating temporary build pod..."
                 sh "kubectl apply -f k8s/build-pod.yaml"
-                sh "kubectl wait --for=condition=Ready pod/temp-build --timeout=120s"
+                sh "kubectl wait --for=condition=Ready pod/temp-build --timeout=60s"
             }
         }
 
         stage('Build and Push Image') {
             steps {
-                echo "Building Docker image inside temp-build..."
-                sh """
-                kubectl cp api-notes/. temp-build:/api-notes
-                kubectl exec temp-build -- sh -c 'docker build -t ${IMAGE_NAME} /api-notes'
-                """
-
-                echo "Pushing Docker image to Docker Hub..."
+                echo "Building and pushing Docker image..."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
-                    kubectl exec temp-build -- sh -c 'echo $PASS | docker login -u $USER --password-stdin'
-                    kubectl exec temp-build -- docker push ${IMAGE_NAME}
+                        kubectl exec temp-build -- sh -c 'docker build -t ${IMAGE_NAME} /var/jenkins_home/workspace/Actividad_1_develop/api-notes'
+                        kubectl exec temp-build -- sh -c 'echo $PASS | docker login -u $USER --password-stdin'
+                        kubectl exec temp-build -- docker push ${IMAGE_NAME}
                     """
                 }
             }
@@ -36,8 +31,8 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo "Updating API deployment..."
-                sh "kubectl set image deployment/${DEPLOYMENT_NAME} notes=${IMAGE_NAME} -n ${NAMESPACE} || kubectl apply -f k8s/deployment.yaml"
+                echo "Deploying updated image..."
+                sh "kubectl set image deployment/${DEPLOYMENT_NAME} notes=${IMAGE_NAME} -n ${NAMESPACE}"
             }
         }
 
