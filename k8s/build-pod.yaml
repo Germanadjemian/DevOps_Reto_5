@@ -5,15 +5,17 @@ metadata:
 spec:
   restartPolicy: Never
   containers:
-  - name: builder
-    image: docker:24-dind
-    command: ["sleep", "3600"]
+  - name: build-container
+    image: docker:24.0.5-dind
     securityContext:
-      privileged: true
+      privileged: true  # necesario para docker-in-docker
+    env:
+      - name: DOCKER_TLS_CERTDIR
+        value: ""
     volumeMounts:
-    - mountPath: /var/run/docker.sock
-      name: docker-sock
+      - name: docker-sock
+        mountPath: /var/run/docker.sock
   volumes:
-  - name: docker-sock
-    hostPath:
-      path: /var/run/docker.sock
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock

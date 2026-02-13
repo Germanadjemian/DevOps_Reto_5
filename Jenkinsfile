@@ -8,14 +8,27 @@ pipeline {
     }
 
     stages {
-
-        stage('Push Image') {
+        stage('Create Build Pod') {
             steps {
+                echo "Creating temporary build pod..."
+                sh "kubectl apply -f k8s/build-pod.yaml"
+                sh "kubectl wait --for=condition=Ready pod/temp-build --timeout=120s"
+            }
+        }
+
+        stage('Build and Push Image') {
+            steps {
+                echo "Building Docker image inside temp-build..."
+                sh """
+                kubectl cp api-notes/. temp-build:/api-notes
+                kubectl exec temp-build -- sh -c 'docker build -t ${IMAGE_NAME} /api-notes'
+                """
+
                 echo "Pushing Docker image to Docker Hub..."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
-                        echo $PASS | docker login -u $USER --password-stdin
-                        docker push ${IMAGE_NAME}
+                    kubectl exec temp-build -- sh -c 'echo $PASS | docker login -u $USER --password-stdin'
+                    kubectl exec temp-build -- docker push ${IMAGE_NAME}
                     """
                 }
             }
@@ -23,26 +36,25 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo "Deploying API to Kubernetes..."
-                // Si el deployment existe, actualiza la imagen. Si no, aplica el yaml
-                sh """
-                    kubectl get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE} && \
-                    kubectl set image deployment/${DEPLOYMENT_NAME} notes=${IMAGE_NAME} -n ${NAMESPACE} || \
-                    kubectl apply -f k8s/deployment.yaml
-                """
+                echo "Updating API deployment..."
+                sh "kubectl set image deployment/${DEPLOYMENT_NAME} notes=${IMAGE_NAME} -n ${NAMESPACE} || kubectl apply -f k8s/deployment.yaml"
             }
         }
 
         stage('Test API') {
             steps {
-                echo "Testing API availability..."
-                sh """
-                    kubectl run temp-test --rm -i --tty --image=curlimages/curl --restart=Never -- \
-                    curl -f http://notes-service.default.svc.cluster.local:80 || exit 1
-                """
+                echo "Testing API..."
+                sh "kubectl port-forward svc/notes-service 8080:80 & sleep 5"
+                sh "curl -f http://localhost:8080 || exit 1"
             }
         }
 
+        stage('Cleanup Build Pod') {
+            steps {
+                echo "Deleting temporary build pod..."
+                sh "kubectl delete pod temp-build || true"
+            }
+        }
     }
 
     post {
