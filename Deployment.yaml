@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: notes
-          image: api-notes
+          image: adjemiangerman/api-notes:latest
           ports:
             - containerPort: 8000
 
